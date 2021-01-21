@@ -1,0 +1,33 @@
+             CMD        PROMPT('Create JAVA Class From File')
+
+             PARM       KWD(FILE) TYPE(FILE) PROMPT('File')
+ FILE:       QUAL       TYPE(*NAME) MIN(1)
+             QUAL       TYPE(*NAME) DFT(*LIBL) SPCVAL((*LIBL) +
+                          (*USRLIBL) (*CURLIB)) CHOICE(*NONE) +
+                          PROMPT('Library')
+
+             PARM       KWD(INDEXFILE) TYPE(INDEXFILE) DFT(*FILE) +
+                          SNGVAL((*FILE)) PROMPT('Index file')
+ INDEXFILE:  QUAL       TYPE(*NAME) SPCVAL((*NONE))
+             QUAL       TYPE(*NAME) DFT(*LIBL) SPCVAL((*LIBL) +
+                          (*USRLIBL) (*CURLIB)) CHOICE(*NONE) +
+                          PROMPT('Library')
+
+             PARM       KWD(SRCFILE) TYPE(SRCFILE) PROMPT('To Source +
+                          File')
+ SRCFILE:    QUAL       TYPE(*NAME) DFT(QJAVASRC)
+             QUAL       TYPE(*NAME) DFT(*CURLIB) SPCVAL((*LIBL) +
+                          (*USRLIBL) (*CURLIB)) CHOICE(*NONE) +
+                          PROMPT('Library')
+
+             PARM       KWD(MEMBER) TYPE(*NAME) DFT(*FILE) +
+                          SPCVAL((*FILE) (*FIRST)) PROMPT('Member')
+
+             PARM       KWD(TODATABASE) TYPE(*CHAR) LEN(7) +
+                          RSTD(*YES) DFT(*MSSQL) VALUES(*MSSQL +
+                          *ORACLE *MYSQL *DB2) PROMPT('To Database')
+
+             PARM       KWD(DATABASE) TYPE(*CHAR) LEN(15) RSTD(*YES) +
+                          DFT('HUBGroupTM') VALUES('HUBGroupTPS' +
+                          'HUBGroupTM') CASE(*MIXED) +
+                          PROMPT('Database name')

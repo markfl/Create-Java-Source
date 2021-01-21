@@ -1,0 +1,3345 @@
+          Ctl-opt Option(*NoDebugio) DftActGrp(*No) BndDir('MFLORES');
+
+          Dcl-f qadspffd           Usage(*Input);
+          Dcl-f qafdaccp           Usage(*Input) ExtInd(*Inu1);
+          Dcl-f qjavasrc Disk(212) Usage(*Output);
+
+          Dcl-Pi CrtJavaClr;
+             @DBType Char(7)  Const;
+             @DBName Char(15) Const;
+          End-Pi;
+
+          /define mflores065
+          /copy qcpysrc,mflores
+          /undefine mflores065
+
+          Dcl-s @O       Packed(5:0) Inz(*Zeros);
+          Dcl-s @Ocur    Packed(5:0) Inz(*Zeros);
+          Dcl-s @FieldA  Char(15)    Dim(9999);
+          Dcl-Ds @Fields Occurs(9999);
+             @SysFldName Char(15);
+             @FieldName  Char(15);
+             @SavFldName Char(15);
+             @Type       Char(10);
+             @Length     Packed(5:0);
+             @Decimal    Zoned(2:0);
+             @GetterName Char(20);
+             @SetterName Char(20);
+          End-Ds;
+
+          Dcl-s @K     Packed(5:0) Inz(*Zeros);
+          Dcl-s @KOcur Packed(5:0) Inz(*Zeros);
+          Dcl-Ds @KeyFields Occurs(9999);
+             @SysKeyName  Char(15);
+             @KeyName     Char(15);
+             @KeyfldName  Char(15);
+             @KeyType     Char(10);
+             @KLength     Packed(5:0);
+             @KDecimal    Zoned(2:0);
+             @KGetterName Char(20);
+             @KSetterName Char(20);
+             @Initializer Char(20);
+          End-Ds;
+
+          Dcl-s @Work Char(10);
+
+          Dcl-c @Fr '#';
+          Dcl-c @To '_';
+
+          Dcl-s @space  Char(3)  Inz(*Blanks);
+          Dcl-s @space2 Char(6)  Inz(*Blanks);
+          Dcl-s @space3 Char(9)  Inz(*Blanks);
+          Dcl-s @space4 Char(12) Inz(*Blanks);
+
+          Dcl-s @a            Packed(5:0) Inz(*Zeros);
+          Dcl-s @KeyFieldsInd Ind         Inz(*Off);
+
+          Dcl-c @Msg2 Const('"Some fields were not -
+                     updated properly."');
+          Dcl-c @Msg3 Const('"Record not retrieved."');
+          Dcl-c @Msg4 Const(' to long for field size."');
+          Dcl-c @Msg5 Const('Key fields must be set.');
+
+          GetFileInfo();
+
+          PrivateSection();
+
+          Constructor();
+
+          GetterSetter();
+
+b001      If @KeyFieldsInd;
+             SetKeyFields();
+e001      EndIf;
+
+          Connect(@DBName);
+
+          CloseConnection();
+
+b001      If @KeyFieldsInd;
+             GetRecord();
+
+             Exists();
+e001      EndIf;
+
+          AddRecord();
+
+b001      If @KeyFieldsInd;
+             UpdateRecord();
+
+             DeleteRecord();
+e001      EndIf;
+
+          ReadFirst();
+
+          ReadNext();
+
+          ReadLast();
+
+          ReadPrevious();
+
+b001      If @KeyFieldsInd;
+             ReadEqualFirst();
+
+             ReadEqualNext();
+
+             ReadEqualLast();
+
+             ReadEqualPrevious();
+e001      EndIf;
+
+          UpdateAllFromResults();
+
+          ToString();
+
+          ToStringKeys();
+
+          CheckFields();
+
+          CloseClass();
+
+          *inlr = *On;
+
+š         Dcl-Proc GetFileInfo;
+
+          Dcl-Pi GetFileInfo;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          /DEFINE mflores004
+          /define mflores065
+          /copy qcpysrc,mflores
+          /UNDEFINE mflores004
+          /undefine mflores065
+
+          Read qwhdrffd;
+b001      Dow not %Eof(qadspffd);
+
+             @Ocur += 1;
+             %occur(@Fields) = @Ocur;
+             @SysFldName     = whflde;
+             whflde          = %Xlate(@Fr:@To:whflde);
+             @Work           = @ToLower(whflde:2);
+             whflde          = @ToLower(whflde);
+             whfile          = @ToLower(whfile);
+             whflde          = @ToLower(whflde);
+             @Work           = @ToLower(@Work:2);
+             // Check for Iseries server
+b002         If @DBType <> '*DB2  ';
+                whflde = ConvertFieldName(whflde: @DBType: 'FIELDNAME');
+                @Work  = ConvertFieldName(@Work: @DBType: 'FIELDNAME');
+                @SysFldName = whflde;
+e002         EndIf;
+             @FieldName  = whflde;
+             @SavFldName = %Trimr(@FieldName) + 'Sav';
+             @GetterName = 'get' + @Work;
+             @SetterName = 'set' + @Work;
+             Clear @Length;
+             Clear @Decimal;
+b002         If whfldt = 'A'
+             Or whfldt = 'L'
+             Or whfldt = 'T'
+             Or whfldt = 'Z';
+                @Type   = 'String';
+                @Length = whfldb;
+x002         Else;
+b003            If whfldp > *Zeros;
+                   @Type = 'double';
+x003            Else;
+                   @Type = 'int';
+e003            EndIf;
+                @Length  = whfldd;
+                @Decimal = whfldp;
+e002         EndIf;
+             @FieldA(@Ocur) = @SysFldName;
+             Read qwhdrffd;
+e001      EndDo;
+
+b001      If *Inu1;
+             Read qwhfdacp;
+b002         Dow not %Eof(qafdaccp);
+
+                // Check for key fields
+b003            If apnkyf > *Zeros;
+
+                   // Set key field ind
+                   @KeyFieldsInd = *On;
+
+                   @KOcur += 1;
+                   %occur(@KeyFields) = @KOcur;
+                   @SysKeyName = apkeyf;
+                   @Work  = @ToLower(apkeyf:2);
+                   @Work  = %Xlate(@Fr:@To:@Work:2);
+                   apkeyf = @ToLower(apkeyf);
+                   apkeyf = %Xlate(@Fr:@To:apkeyf);
+b004               If @DBType <> '*DB2  ';
+                      apkeyf = ConvertFieldName(apkeyf: @DBType: 'FIELDNAME');
+                      @Work  = ConvertFieldName(@Work: @DBType: 'FIELDNAME');
+                      @SysKeyName = apkeyf;
+e004               EndIf;
+                   @KeyName = apkeyf;
+                   @KeyFldName = 'Key' + apkeyf;
+                   @a = %Lookup(@SysKeyName: @FieldA);
+                   If @a > *Zeros;
+                   %occur(@Fields) = @a;
+                      @KeyType = @Type;
+                      @KGetterName = 'getKey' + @Work;
+                      @KSetterName = 'setKey' + @Work;
+                      @KLength     = @Length;
+                      @KDecimal    = @Decimal;
+                      @Initializer = @GetterName;
+e004               EndIf;
+
+e003            EndIf;
+
+                // Check for Iseries server
+                Read qwhfdacp;
+e002         EndDo;
+
+e001      EndIf;
+
+          WriteBlankLine();
+
+          // write class heading
+          @Free = 'import java.sql.Connection;';
+          WriteJavaSourceLine(@Free);
+          @Free = 'import java.sql.DriverManager;';
+          WriteJavaSourceLine(@Free);
+          @Free = 'import java.sql.Statement;';
+          WriteJavaSourceLine(@Free);
+          @Free = 'import java.sql.PreparedStatement;';
+          WriteJavaSourceLine(@Free);
+          @Free = 'import java.sql.ResultSet;';
+          WriteJavaSourceLine(@Free);
+          @Free = 'import java.sql.SQLException;';
+          WriteJavaSourceLine(@Free);
+          @Free = 'import java.sql.SQLWarning;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write class heading
+          @Free = 'public class ' + %Trimr(Whfile) + ' {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc PrivateSection;
+
+          Dcl-Pi PrivateSection;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // read through occurance data structure to create all fields
+b001      For @o = 1 to @Ocur;
+             %occur(@Fields) = @o;
+             @Free = @space + 'private ' + %Trimr( @Type) + ' '
+                   + %Trimr(@FieldName) + ';';
+             WriteJavaSourceLine(@Free);
+e001      EndFor;
+
+          WriteBlankLine();
+
+          // read through occurance data structure to create all save fields
+b001      For @o = 1 to @Ocur;
+             %occur(@Fields) = @o;
+             @Free = @space + 'private ' + %Trimr( @Type) + ' '
+                   + %Trimr(@SavFldName) + ';';
+             WriteJavaSourceLine(@Free);
+e001      EndFor;
+
+          WriteBlankLine();
+
+          // check for index file included
+b001      If *Inu1;
+
+             // read through occurance data structure to create all key fields
+b002         For @K = 1 to @KOcur;
+                %occur(@KeyFields) = @K;
+                @Free = @space + 'private ' + %Trimr(@KeyType) + ' '
+                      + %Trimr(@KeyFldName) + ';';
+                WriteJavaSourceLine(@Free);
+e002         EndFor;
+
+             WriteBlankLine();
+e001      EndIf;
+
+          // write connection variable line
+          @Free = @space + 'private Connection conn;';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space + 'private ResultSet results;';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space + 'private PreparedStatement checkStmt;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write record found/not found ind.
+          @Free = @space + 'private boolean recordFound;';
+          WriteJavaSourceLine(@Free);
+
+          // write ok to update/add ind.
+          @Free = @space + 'private boolean updateOK;';
+          WriteJavaSourceLine(@Free);
+
+          // write ok to use read equal next ind
+          @Free = @space + 'private boolean readeOK;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc Constructor;
+
+          Dcl-Pi Constructor;
+          End-Pi;
+
+          Dcl-s @Cnt      Packed(3:0) Inz(*Zeros);
+          Dcl-s @spacebig Char(19)    Inz(*Blanks);
+          Dcl-s @First    Ind         Inz(*Off);
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // write class heading
+          @Free = @space + 'public ' + %Trimr(Whfile) +'() {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'super();';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // read through occurance data structure
+b001      For @o = 1 to @Ocur;
+             %occur(@Fields) = @o;
+             @Free = @space2 + %Trimr(@SetterName) + '(';
+             // Start type selection
+b002         Select;
+x002            When @Type = 'String';
+                   @Free = %Trimr(@Free) + '"");';
+x002            When @Type = 'double';
+                   @Free = @space2 + %Trimr(@SetterName) + '(0.0);';
+x002            When @Type = 'int';
+                   @Free = @space2 + %Trimr(@SetterName) + '(0);';
+e002         EndSl;
+             WriteJavaSourceLine(@Free);
+e001      EndFor;
+
+          WriteBlankLine();
+
+          // read through occurance data structure
+b001      For @o = 1 to @Ocur;
+             %occur(@Fields) = @o;
+             @Free = @space2  + %Trimr(@SetterName) + 'Sav();';
+             WriteJavaSourceLine(@Free);
+e001      EndFor;
+
+          WriteBlankLine();
+
+          // check for index file included
+b001      If *Inu1;
+             // read through occurance data structure to create all key fields
+b002         For @K = 1 to @KOcur;
+                %occur(@KeyFields) = @K;
+                @Free = @space2 + %trim(@KSetterName) + '('
+                                + %Trimr(@Initializer) + '());';
+                WriteJavaSourceLine(@Free);
+e002         EndFor;
+
+             WriteBlankLine();
+e001      EndIf;
+
+          SetOffAllInd(2);
+
+          // Close bracket
+          @Free = @space + '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write contructor heading
+          @Free = @space + 'public ' + %Trimr(Whfile) +'(';
+
+          // read through occurance data structure
+b001      For @o = 1 to @Ocur;
+             %occur(@Fields) = @o;
+             @Cnt += 1;
+b002         If @Cnt = 1;
+b003            If not @First;
+                   @Free = %Trimr(@Free) + %Trimr(@Type) + ' '
+                         + %Trimr(@FieldName) + ', ';
+                   @First = *On;
+x003            Else;
+b004               If @o < @Ocur;
+                      @Free = @spacebig + %Trimr(@Type) + ' '
+                            + %Trimr(@FieldName) + ', ';
+x004               Else;
+                      @Free = @spacebig + %Trimr(@Type) + ' '
+                            + %Trimr(@FieldName);
+e004               EndIf;
+e003            EndIf;
+x002         Else;
+b003            If @o < @Ocur;
+                   @Free = %Trimr(@Free) + ' ' + %Trimr(@Type) + ' '
+                         + %Trimr(@FieldName) + ',';
+x003            Else;
+                   @Free = %Trimr(@Free) + ' ' + %Trimr(@Type) + ' '
+                         + %Trimr(@FieldName);
+e003            EndIf;
+e002         EndIf;
+b002         If @Cnt = 3 and @o <> @Ocur;
+                WriteJavaSourceLine(@Free);
+                Clear @Free;
+                Clear @Cnt;
+e002         EndIf;
+e001      EndFor;
+
+          @Free = %Trimr(@Free) + ') {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'super();';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // read through occurance data structure
+b001      For @o = 1 to @Ocur;
+             %occur(@Fields) = @o;
+             @Free = @space2  + %Trimr(@SetterName) + '('
+                   + %Trimr(@FieldName) + ');';
+             WriteJavaSourceLine(@Free);
+e001      EndFor;
+
+          WriteBlankLine();
+
+          // read through occurance data structure
+b001      For @o = 1 to @Ocur;
+             %occur(@Fields) = @o;
+             @Free = @space2  + %Trimr(@SetterName) + 'Sav();';
+             WriteJavaSourceLine(@Free);
+e001      EndFor;
+
+          WriteBlankLine();
+
+          // check for index file included
+b001      If *Inu1;
+
+             // read through occurance data structure to create all key fields
+b002         For @K = 1 to @KOcur;
+                %occur(@KeyFields) = @K;
+                @Free = @space2 + %trim(@KSetterName) + '('
+                                + %Trimr(@Initializer) + '());';
+                WriteJavaSourceLine(@Free);
+e002         EndFor;
+
+             WriteBlankLine();
+e001      EndIf;
+
+          SetOffAllInd(2);
+
+          // write class heading
+          @Free = @space + '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc GetterSetter;
+
+          Dcl-Pi GetterSetter;
+          End-Pi;
+
+          // read through occurance data structure original fields
+b001      For @o = 1 to @Ocur;
+             %occur(@Fields) = @o;
+             Getter(@FieldName: @Type: @GetterName);
+             Setter(@FieldName: @Type: @SetterName: @Length: @Decimal: *Off);
+e001      EndFor;
+
+          WriteBlankLine();
+
+          // read through occurance data structure for save fields
+b001      For @o = 1 to @Ocur;
+             %occur(@Fields) = @o;
+             Getter(%Trimr(@FieldName) + 'Sav':
+             @Type: %Trimr(@GetterName) + 'Sav');
+             SetterSav(%Trimr(@FieldName): %Trimr(@GetterName):
+                       %Trimr(@SetterName) + 'Sav');
+e001      EndFor;
+
+          WriteBlankLine();
+
+          // check for index file included
+b001      If *Inu1;
+
+             // read through occurance data structure to create all key fields
+b002         For @K = 1 to @KOcur;
+                %occur(@KeyFields) = @K;
+                Getter(@KeyFldName: @KeyType: @KGetterName);
+                Setter(@KeyFldName: @KeyType: @KSetterName:
+                       @KLength: @KDecimal: *On);
+e002         EndFor;
+
+             WriteBlankLine();
+e001      EndIf;
+
+          Getter('recordFound': 'boolean': 'getRecordFound');
+          Setter('recordFound': 'boolean': 'setRecordFound':
+                 *Zeros: *Zeros: *Off);
+
+          Getter('updateOK': 'boolean': 'getUpdateOK');
+          Setter('updateOK': 'boolean': 'setUpdateOK': *Zeros: *Zeros: *Off);
+
+          Getter('readeOK': 'boolean': 'getReadeOK');
+          Setter('readeOK': 'boolean': 'setReadeOK': *Zeros: *Zeros: *Off);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc Getter;
+
+          Dcl-Pi Getter;
+             @Field Char(20) Const;
+             @Tp    Char(10) Const;
+             @Name  Char(20) Const;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // write getter
+          @Free = @space + 'public ' + %Trimr(@Tp) + ' ' + %Trimr(@Name)
+                + '() {';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space2 + 'return this.' + %Trimr(@Field) + ';';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+š         End-Proc;
+
+š         Dcl-Proc Setter;
+
+          Dcl-Pi Setter;
+             @Field   Char(20) Const;
+             @Tp      Char(10) Const;
+             @Name    Char(20) Const;
+             @Length  Packed(5:0) Const;
+             @Decimal Zoned(2:0) Const;
+             @SetInd  Ind Const;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // write setter
+          @Free = @space + 'public void ' + %Trimr(@Name) + '('
+                + %Trimr(@Tp) + ' ' + %Trimr(@Field) + ') {';
+          WriteJavaSourceLine(@Free);
+
+          // Check for set off reade ind.
+b001      If @SetInd;
+
+             SetOffAllInd(2);
+
+e001      EndIf;
+
+b001      Select;
+             When @Tp = 'double';
+                @Free = @space2 + 'this.' + %Trimr(@Field) + ' = 0.0;';
+                WriteJavaSourceLine(@Free);
+                @Free = @space2 + 'if (' + %Trimr(@Field) + ' != 0) {';
+                WriteJavaSourceLine(@Free);
+                @Free = @space3 + 'int length = ' + %Char(@Length) + ';';
+                WriteJavaSourceLine(@Free);
+                @Free = @space3 + 'int decimal = ' + %Char(@Decimal) + ';';
+                WriteJavaSourceLine(@Free);
+                @Free = @space3 + 'if (checkSizeDouble('
+                                + %Trimr(@Field)
+                                + ', length, decimal)) {';
+                WriteJavaSourceLine(@Free);
+                @Free = @space4 + 'String doubleString = String.format';
+                @Free = %Trimr(@Free) + '("%.' + %Char(@Decimal) + 'f",';
+                @Free = %Trimr(@Free) + ' ' + %Trimr(@Field) + ');';
+                WriteJavaSourceLine(@Free);
+                @Free = @space4 + %Trimr(@Field);
+                @Free = @space4 + 'this.' + %Trimr(@Field)
+                      + ' = Double.parseDouble(doubleString);';
+                WriteJavaSourceLine(@Free);
+                @Free = @space3 + '} else {';
+                WriteJavaSourceLine(@Free);
+                @Free = @space4 + 'System.out.println("Field ' + %Trimr(@Field);
+                @Free = %Trimr(@Free) + ': not updated properly. ';
+                @Free = %Trimr(@Free) + ' ' + %Trimr(@Field) + ' = " +';
+                @Free = %Trimr(@Free) + ' ' + %Trimr(@Field) + ');';
+                WriteJavaSourceLine(@Free);
+                @Free = @space4 + 'setUpdateOK(false);';
+                WriteJavaSourceLine(@Free);
+                @Free = @space3 + '};';
+                WriteJavaSourceLine(@Free);
+                @Free = @space2 + '};';
+                WriteJavaSourceLine(@Free);
+             When @Tp = 'int';
+                @Free = @space2 + 'this.' + %Trimr(@Field) + ' = 0;';
+                WriteJavaSourceLine(@Free);
+                @Free = @space2 + 'if (' + %Trimr(@Field) + ' != 0) {';
+                WriteJavaSourceLine(@Free);
+                @Free = @space3 + 'int length = ' + %Char(@Length) + ';';
+                WriteJavaSourceLine(@Free);
+                @Free = @space3 + 'if (checkSizeInt('
+                                + %Trimr(@Field)
+                                + ', length))';
+                WriteJavaSourceLine(@Free);
+                @Free = @space4 + 'this.' + %Trimr(@Field) + ' = '
+                      + %Trimr(@Field) + ';';
+                WriteJavaSourceLine(@Free);
+                @Free = @space3 + 'else {';
+                WriteJavaSourceLine(@Free);
+                @Free = @space4 + 'System.out.println("Field ' + %Trimr(@Field);
+                @Free = %Trimr(@Free) + ': not updated properly. ';
+                @Free = %Trimr(@Free) + ' ' + %Trimr(@Field) + ' = " +';
+                @Free = %Trimr(@Free) + ' ' + %Trimr(@Field) + ');';
+                WriteJavaSourceLine(@Free);
+                @Free = @space4 + 'setUpdateOK(false);';
+                WriteJavaSourceLine(@Free);
+                @Free = @space3 + '};';
+                WriteJavaSourceLine(@Free);
+                @Free = @space2 + '};';
+                WriteJavaSourceLine(@Free);
+             When @Tp = 'String';
+                @Free = @space2 + 'this.' + %Trimr(@Field) + ' = "";';
+                WriteJavaSourceLine(@Free);
+                @Free = @space2 + 'if (' + %Trimr(@Field) + ' != "") {';
+                WriteJavaSourceLine(@Free);
+                @Free = @space3 + 'int length = ' + %Char(@Length) + ';';
+                WriteJavaSourceLine(@Free);
+                @Free = @space3 + 'if (checkSizeString('
+                                + %Trimr(@Field)
+                                + ', length))';
+                WriteJavaSourceLine(@Free);
+                @Free = @space4 + 'this.' + %Trimr(@Field) + ' = '
+                      + %Trimr(@Field) + ';';
+                WriteJavaSourceLine(@Free);
+                @Free = @space3 + 'else {';
+                WriteJavaSourceLine(@Free);
+                @Free = @space4 + 'System.out.println("Field ' + %Trimr(@Field);
+                @Free = %Trimr(@Free) + ': not updated properly. ';
+                @Free = %Trimr(@Free) + ' ' + %Trimr(@Field) + ' = " +';
+                @Free = %Trimr(@Free) + ' ' + %Trimr(@Field) + ');';
+                WriteJavaSourceLine(@Free);
+                @Free = @space4 + 'setUpdateOK(false);';
+                WriteJavaSourceLine(@Free);
+                @Free = @space3 + '};';
+                WriteJavaSourceLine(@Free);
+                @Free = @space2 + '};';
+                WriteJavaSourceLine(@Free);
+             When @Tp = 'boolean';
+                @Free = @space2 + 'this.' + %Trimr(@Field) + ' = '
+                      + %Trimr(@Field) + ';';
+                WriteJavaSourceLine(@Free);
+e001      EndSl;
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+š         End-Proc;
+
+š         Dcl-Proc SetterSav;
+
+          Dcl-Pi SetterSav;
+             @Field  Char(20) Const;
+             @Getter Char(20) Const;
+             @Name   Char(20) Const;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // write setter
+          @Free = @space + 'public void ' + %Trimr(@Name) + '() {';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space2 + 'this.' + %Trimr(@Field) + 'Sav = '
+                + %Trimr(@Getter) + '();';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+š         End-Proc;
+
+š         Dcl-Proc SetKeyFields;
+
+          Dcl-Pi SetKeyFields;
+          End-Pi;
+
+          Dcl-s @Cnt      Packed(3:0)    Inz(*Zeros);
+          Dcl-s @spacebig Char(28)       Inz(*Blanks);
+          Dcl-s @First    Ind            Inz(*Off);
+
+          Dcl-s @Free     VarChar(32000) Inz(*Blanks);
+
+          // write set key
+          @Free = @space + 'public void setKeyFields() {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // read through occurance data structure to create all key fields
+b001      For @K = 1 to @KOcur;
+             %occur(@KeyFields) = @K;
+             @Free = @space2 + %trim(@KSetterName) + '('
+                             + %Trimr(@Initializer) + '());';
+             WriteJavaSourceLine(@Free);
+e001      EndFor;
+
+          WriteBlankLine();
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space + 'public void setKeyFields(';
+
+          // read through occurance data structure
+b001      For @K = 1 to @KOcur;
+             %occur(@KeyFields) = @K;
+             @Cnt += 1;
+b002         If @Cnt = 1;
+b003            If not @First;
+                   @Free = %Trimr(@Free) + %Trimr(@KeyType) + ' '
+                         + %Trimr(@KeyFldName) + ', ';
+                   @First = *On;
+x003            Else;
+b004               If @K < @KOcur;
+                      @Free = @spacebig + %Trimr(@KeyType) + ' '
+                            + %Trimr(@KeyFldName) + ', ';
+x004               Else;
+                      @Free = @spacebig + %Trimr(@KeyType) + ' '
+                            + %Trimr(@KeyFldName);
+e004               EndIf;
+e003            EndIf;
+x002         Else;
+b003            If @K < @KOcur;
+                   @Free = %Trimr(@Free) + ' ' + %Trimr(@KeyType) + ' '
+                         + %Trimr(@KeyFldName) + ',';
+x003            Else;
+                   @Free = %Trimr(@Free) + ' ' + %Trimr(@KeyType) + ' '
+                         + %Trimr(@KeyFldName);
+e003            EndIf;
+e002         EndIf;
+b002         If @Cnt = 3 and @K <> @KOcur;
+                WriteJavaSourceLine(@Free);
+                Clear @Free;
+                Clear @Cnt;
+e002         EndIf;
+e001      EndFor;
+
+          @Free = %Trimr(@Free) + ') {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // read through occurance data structure to create all key fields
+b001      For @K = 1 to @KOcur;
+             %occur(@KeyFields) = @K;
+             @Free = @space2 + 'this.' + %Trimr(@KeyFldName)
+                             + ' = ' + %Trimr(@KeyFldName) + ';';
+             @Free = @space2 + %trim(@KSetterName) + '('
+                             + %Trimr(@KeyFldName) + ');';
+             WriteJavaSourceLine(@Free);
+e001      EndFor;
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc WriteBlankLine;
+
+          Dcl-Pi WriteBlankLine;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // write blank line
+          Clear @Free;
+          WriteJavaSourceLine(@Free);
+
+š         End-Proc;
+
+š         Dcl-Proc Connect;
+
+          Dcl-Pi Connect;
+             @DBName Char(15) Const;
+          End-Pi;
+
+          Dcl-c @UrlStrSQL1   'jdbc:sqlserver://localhost;databaseName=';
+          Dcl-c @UrlStrSQL2   ';IntegratedSecurity=true";';
+          Dcl-c @DriverStrSQL 'com.mssql.jdbc.Driver';
+          Dcl-c @UrlStrMYSQL  'jdbc:mysql://localhost:';
+          Dcl-c @DrvrStrMySQL 'com.mysql.jdbc.Driver';
+          Dcl-c @UrlStrOrac   'jdbc:oracle:thin:@localhost:1521:';
+          Dcl-c @DrvrStrOrac  'oracle.jdbc.driver.OracleDriver';
+          Dcl-c @UrlStrdb2    'jdbc:db2:://localhost';
+          Dcl-c @DrvrStrdb2   'COM.ibm.db2.jdbc.app.DB2Driver';
+
+          Dcl-s @ClassString Char(256) Inz(*Blanks);
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // Check for MS SQL Server
+b001      If @DBType = '*MSSQL';
+
+             // write setter
+             @Free = @space + 'public void connect(String userName, ' +
+                              'String passWord) throws SQLException {';
+             WriteJavaSourceLine(@Free);
+
+             WriteBlankLine();
+
+             @Free = @space2 + 'String url = "' + @UrlStrSQL1 + %Trimr(@DBName)
+                             + @UrlStrSQL2;
+             WriteJavaSourceLine(@Free);
+             @ClassString = @DriverStrSQL;
+
+             WriteBlankLine();
+
+             // write Connection strings
+             @Free = @space2 + 'try {';
+             WriteJavaSourceLine(@Free);
+
+             @Free = @space3 + 'Class.forName("' + @ClassString;
+             @Free = %Trimr(@Free) + '");';
+             WriteJavaSourceLine(@Free);
+
+             // write Connection strings
+             @Free = @space2 + '}';
+             WriteJavaSourceLine(@Free);
+
+             // write Connection strings
+             @Free = @space2 + 'catch (Exception e) {';
+             WriteJavaSourceLine(@Free);
+
+             // write Connection strings
+             @Free = @space2 + '}';
+             WriteJavaSourceLine(@Free);
+
+             WriteBlankLine();
+
+             @Free = @space2 + 'conn = DriverManager.getConnection(';
+             @Free = %Trimr(@Free) + 'url, userName, passWord);';
+             WriteJavaSourceLine(@Free);
+
+e001      EndIf;
+
+          // Check for MySQL Server
+b001      If @DBType = '*MYSQL';
+
+             // write setter
+             @Free = @space + 'public void connect(String userName, ' +
+                                                  'String passWord, ' +
+                                                  'int port) ' +
+                                                  'throws SQLException {';
+             WriteJavaSourceLine(@Free);
+
+             WriteBlankLine();
+
+             @Free = @space2 + 'String url = "' + @UrlStrMYSQL + '" + port + "/'
+                             + %Trimr(@DBName) + '";';
+             WriteJavaSourceLine(@Free);
+             @ClassString = @DrvrStrMySQL;
+
+             WriteBlankLine();
+
+             // write Connection strings
+             @Free = @space2 + 'try {';
+             WriteJavaSourceLine(@Free);
+
+             @Free = @space3 + 'Class.forName("' + @ClassString;
+             @Free = %Trimr(@Free) + '");';
+             WriteJavaSourceLine(@Free);
+
+             // write Connection strings
+             @Free = @space2 + '}';
+             WriteJavaSourceLine(@Free);
+
+             // write Connection strings
+             @Free = @space2 + 'catch (Exception e) {';
+             WriteJavaSourceLine(@Free);
+
+             // write Connection strings
+             @Free = @space2 + '}';
+             WriteJavaSourceLine(@Free);
+
+             WriteBlankLine();
+
+             @Free = @space2 + 'conn = DriverManager.getConnection(';
+             @Free = %Trimr(@Free) + 'url, userName, passWord);';
+             WriteJavaSourceLine(@Free);
+
+e001      EndIf;
+
+          // Check for Oracle Server
+b001      If @DBType = '*ORACLE';
+
+             // write setter
+             @Free = @space + 'public void connect(String userName, ' +
+                              'String passWord) throws SQLException {';
+             WriteJavaSourceLine(@Free);
+
+             WriteBlankLine();
+
+             @Free = @space2 + 'String url = "' + @UrlStrOrac + %Trimr(@DBName)
+                             + '";';
+             WriteJavaSourceLine(@Free);
+             @ClassString = @DrvrStrOrac;
+
+             WriteBlankLine();
+
+             // write Connection strings
+             @Free = @space2 + 'try {';
+             WriteJavaSourceLine(@Free);
+
+             @Free = @space3 + 'Class.forName("' + @ClassString;
+             @Free = %Trimr(@Free) + '");';
+             WriteJavaSourceLine(@Free);
+
+             // write Connection strings
+             @Free = @space2 + '}';
+             WriteJavaSourceLine(@Free);
+
+             // write Connection strings
+             @Free = @space2 + 'catch (Exception e) {';
+             WriteJavaSourceLine(@Free);
+
+             // write Connection strings
+             @Free = @space2 + '}';
+             WriteJavaSourceLine(@Free);
+
+             WriteBlankLine();
+
+             @Free = @space2 + 'conn = DriverManager.getConnection(';
+             @Free = %Trimr(@Free) + 'url, userName, passWord);';
+             WriteJavaSourceLine(@Free);
+
+e001      EndIf;
+
+          // Check for db 2
+b001      If @DBType = '*DB2   ';
+
+             // write setter
+             @Free = @space + 'public void connect(String userName, ' +
+                              'String passWord) throws SQLException {';
+             WriteJavaSourceLine(@Free);
+
+             WriteBlankLine();
+
+             @Free = @space2 + 'String url = "' + @UrlStrdb2 + %Trimr(@DBName)
+                             + '";';
+             WriteJavaSourceLine(@Free);
+             @ClassString = @DrvrStrDb2;
+
+             WriteBlankLine();
+
+             // write Connection strings
+             @Free = @space2 + 'try {';
+             WriteJavaSourceLine(@Free);
+
+             @Free = @space3 + 'Class.forName("' + @ClassString;
+             @Free = %Trimr(@Free) + '");';
+             WriteJavaSourceLine(@Free);
+
+             // write Connection strings
+             @Free = @space2 + '}';
+             WriteJavaSourceLine(@Free);
+
+             // write Connection strings
+             @Free = @space2 + 'catch (Exception e) {';
+             WriteJavaSourceLine(@Free);
+
+             // write Connection strings
+             @Free = @space2 + '}';
+             WriteJavaSourceLine(@Free);
+
+             WriteBlankLine();
+
+             @Free = @space2 + 'conn = DriverManager.getConnection(';
+             @Free = %Trimr(@Free) + 'url, userName, passWord);';
+             WriteJavaSourceLine(@Free);
+
+e001      EndIf;
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'readeOK = false;';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc CloseConnection;
+
+          Dcl-Pi CloseConnection;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // write close connection
+          @Free = @space + 'public void closeConnection() ' +
+                           'throws SQLException {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'if (conn != null)';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'conn.close();';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'checkStmt.close();';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'results.close();';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc GetRecord;
+
+          Dcl-Pi GetRecord;
+          End-Pi;
+
+          Dcl-s @Cnt Packed(3:0) Inz(*Zeros);
+          Dcl-s @spacebig1 Char(30) Inz(*Blanks);
+          Dcl-s @spacebig2 Char(24) Inz(*Blanks);
+          Dcl-s @First Ind Inz(*Off);
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // write add
+          @Free = @space + 'public boolean get() throws SQLException {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetOffAllInd(2);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'if (conn == null)';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetCheckKeyFields();
+
+          // write select
+          @Free = @space2 + 'String checkSql = "select';
+
+          // Execute set select statement routine
+          SetSelectFields(@Free);
+
+          // write select
+          @Free = @spacebig2 + '" from ' + %Trimr(whfile) + '" +';
+          WriteJavaSourceLine(@Free);
+          // write select
+          @Free = @spacebig2 + '" where';
+
+          // read through occurance data structure
+          Clear @Cnt;
+b001      For @K = 1 to @KOcur;
+             %occur(@KeyFields) = @K;
+             @Cnt += 1;
+b002         If @Cnt = 1 and @Cnt <> @K;
+b003            If not @First;
+                   @Free = @spacebig1 + '" '
+                         + %Trimr(@SysKeyName) + '='
+                         + '? and ';
+                   @First = *On;
+x003            Else;
+b004               If @K < @KOcur;
+                      @Free = @spacebig1 + '" '
+                            + %Trimr(@SysKeyName) + '='
+                         + '? and ';
+x004               Else;
+                      @Free = @spacebig1 + ' '
+                            + %Trimr(@SysKeyName) + '='
+                            + '?';
+e004               EndIf;
+e003            EndIf;
+x002         Else;
+b003            If @K < @KOcur;
+                   @Free = %Trimr(@Free) + ' '
+                         + %Trimr(@SysKeyName) + '='
+                         + '? and ';
+x003            Else;
+                   @Free = %Trimr(@Free) + ' '
+                         + %Trimr(@SysKeyName) + '='
+                            + '?';
+e003            EndIf;
+e002         EndIf;
+b002         If @Cnt = 5 and @K <> @KOcur;
+                @Free = %Trimr(@Free) + '" +';
+                WriteJavaSourceLine(@Free);
+                Clear @Free;
+                Clear @Cnt;
+e002         EndIf;
+e001      EndFor;
+          @Free = %Trimr(@Free) + '";';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'checkStmt =';
+          @Free = %Trimr(@Free) + ' conn.prepareStatement(checkSql);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // read through occurance data structure
+b001      For @K = 1 to @KOcur;
+             %occur(@KeyFields) = @K;
+
+b002         Select;
+x002         When @KeyType = 'String';
+                // write select
+                @Free = @space2 + 'checkStmt.setString(';
+x002         When @KeyType = 'double';
+                // write select
+                @Free = @space2 + 'checkStmt.setDouble(';
+x002         When @KeyType = 'int';
+                // write select
+                @Free = @space2 + 'checkStmt.setInt(';
+e002         EndSl;
+             @Free = %Trimr(@Free) + %Char(@K) + ', '
+                   + %Trimr(@KeyFldName) + ');';
+             WriteJavaSourceLine(@Free);
+e001      EndFor;
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'results = checkStmt.executeQuery();';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'SQLWarning warning = results.getWarnings();';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'printSQLWarnings(warning);';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'warning = checkStmt.getWarnings();';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'printSQLWarnings(warning);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write read results
+          @Free = @space2 + 'if (results.next()) {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space3 + 'updateAllFromResults();';
+          WriteJavaSourceLine(@Free);
+
+b001      If @KeyFieldsInd;
+             // write select
+             @Free = @space3 + 'setKeyFields();';
+             WriteJavaSourceLine(@Free);
+e001      EndIf;
+
+          @Free = @space3 + 'setRecordFound(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'setUpdateOK(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'return true;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 +  '} else {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetOffAllInd(3);
+
+          @Free = @space3 + 'System.out.println(' + @Msg3 + ');';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 +  '}';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc Exists;
+
+          Dcl-Pi Exists;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          Dcl-s @EndLine Like(@Free) Inz(*Blanks);
+          Dcl-s @Check Char(5) Inz(*Blanks);
+          Dcl-s @spacebig2 Char(24) Inz(*Blanks);
+
+          // write add
+          @Free = @space + 'public boolean exists() throws SQLException {';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'int count;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetOffAllInd(2);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'if (conn == null)';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetCheckKeyFields();
+
+          // write select
+          @Free = @space2 + 'String checkSql = "select count(*) as count from '
+                          + %Trimr(whfile) + ' ";';
+          WriteJavaSourceLine(@Free);
+
+          SetWhereFields();
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'checkStmt =';
+          @Free = %Trimr(@Free) + ' conn.prepareStatement(checkSql);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'count = 1;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetSelectStatementKeys();
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'results = checkStmt.executeQuery();';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'SQLWarning warning = results.getWarnings();';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'printSQLWarnings(warning);';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'warning = checkStmt.getWarnings();';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'printSQLWarnings(warning);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select get
+          @Free = @space2 + 'results.next();';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space2 + 'count = results.getInt(1);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'if (count > 0)';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return true;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + 'else';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc AddRecord;
+
+          Dcl-Pi AddRecord;
+          End-Pi;
+
+          Dcl-s @Cnt Packed(3:0) Inz(*Zeros);
+          Dcl-s @spacebig1 Char(46) Inz(*Blanks);
+          Dcl-s @spacebig2 Char(24) Inz(*Blanks);
+          Dcl-s @spacebig3 Char(32) Inz(*Blanks);
+          Dcl-s @First Ind Inz(*Off);
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // write add
+          @Free = @space + 'public boolean add() throws SQLException {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'setReadeOK(false);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write check for record found
+          @Free = @space2 + 'if (!getUpdateOK()) {';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'System.out.println(' + @Msg2 + ');';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'String checkSql = "insert into '
+                          + %Trimr(whfile) + ' (';
+
+          // read through occurance data structure
+b001      For @o = 1 to @Ocur;
+             %occur(@Fields) = @o;
+             @Cnt += 1;
+b002         If @Cnt = 1;
+b003            If not @First;
+                   @Free = %Trimr(@Free) + %Trimr(@SysFldName) + ', ';
+                   @First = *On;
+x003            Else;
+b004               If @o < @Ocur;
+                      @Free = @spacebig1 + '"' + %Trimr(@SysFldName) + ', ';
+x004               Else;
+                      @Free = @spacebig1 + %Trimr(@SysFldName);
+e004               EndIf;
+e003            EndIf;
+x002         Else;
+b003            If @o < @Ocur;
+                   @Free = %Trimr(@Free) + %Trimr(@SysFldName) + ',';
+x003            Else;
+                   @Free = %Trimr(@Free) + %Trimr(@SysFldName) + ')';
+e003            EndIf;
+e002         EndIf;
+b002         If @Cnt = 5 and @o <> @Ocur;
+                @Free = %Trimr(@Free) + '" +';
+                WriteJavaSourceLine(@Free);
+                Clear @Free;
+                Clear @Cnt;
+e002         EndIf;
+e001      EndFor;
+          // write select
+          @Free = %Trimr(@Free) + '" +';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @spacebig2 + '" values (';
+
+          // read through occurance data structure
+          Clear @Cnt;
+b001      For @o = 1 to @Ocur;
+             @Cnt += 1;
+             %occur(@Fields) = @o;
+b002         If @o < @Ocur;
+                @Free = %Trimr(@Free) + ' ?,';
+x002         Else;
+                @Free = %Trimr(@Free) + ' ?);";';
+e002         EndIf;
+b002         If @Cnt = 20 and @o <> @Ocur;
+                @Free = %Trimr(@Free) + '" +';
+                WriteJavaSourceLine(@Free);
+                Clear @Free;
+                @Free = @spacebig3 + '"';
+                Clear @Cnt;
+e002         EndIf;
+e001      EndFor;
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'checkStmt =';
+          @Free = %Trimr(@Free) + ' conn.prepareStatement(checkSql);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // read through occurance data structure
+b001      For @O = 1 to @Ocur;
+             %occur(@Fields) = @O;
+
+b002         Select;
+x002         When @Type = 'String';
+                // write select
+                @Free = @space2 + 'checkStmt.setString(';
+x002         When @Type = 'double';
+                // write select
+                @Free = @space2 + 'checkStmt.setDouble(';
+x002         When @Type = 'int';
+                // write select
+                @Free = @space2 + 'checkStmt.setInt(';
+e002         EndSl;
+             @Free = %Trimr(@Free) + %Char(@O) + ', '
+                   + %Trimr(@FieldName) + ');';
+             WriteJavaSourceLine(@Free);
+e001      EndFor;
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'int record = checkStmt.executeUpdate();';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'SQLWarning warning = checkStmt.getWarnings();';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'printSQLWarnings(warning);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'if (record > 0)';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return true;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + 'else';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc UpdateRecord;
+
+          Dcl-Pi UpdateRecord;
+          End-Pi;
+
+          Dcl-s @notFirst Ind Inz(*Off);
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // write update
+          @Free = @space + 'public boolean update() throws SQLException {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'boolean fieldBefore = false;';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space2 + 'setReadeOK(false);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write check for record found
+          @Free = @space2 + 'if (!getUpdateOK()) {';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'System.out.println(' + @Msg2 + ');';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write check for record found
+          @Free = @space2 + 'if (!getRecordFound()) {';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'System.out.println(' + @Msg3 + ');';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'String checkSql = "update '
+                          + %Trimr(whfile) + ' set ";';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // read through occurance data structure
+          Reset @notFirst;
+b001      For @o = 1 to @Ocur;
+             %occur(@Fields) = @o;
+             // Check for field change
+             @Free = @space2 + 'if (' + %Trimr(@Fieldname) + ' != '
+                   + %Trimr(@SavFldname) + ') {';
+             WriteJavaSourceLine(@Free);
+b002         If @notFirst;
+                @Free = @space3 + 'if (fieldBefore)';
+                WriteJavaSourceLine(@Free);
+                @Free = @space4 + 'checkSql = checkSql.concat(",");';
+                WriteJavaSourceLine(@Free);
+e002         EndIf;
+             @notFirst = *On;
+             @Free = @space3 + 'checkSql = checkSql.concat(" '
+                             + %Trimr(@SysFldName) + ' = ?");';
+             WriteJavaSourceLine(@Free);
+             @Free = @space3 + 'fieldBefore = true;';
+             WriteJavaSourceLine(@Free);
+             @Free = @space2 + '};';
+             WriteJavaSourceLine(@Free);
+e001      EndFor;
+
+          WriteBlankLine();
+
+          SetWhereFields();
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'int count = 1;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'checkStmt =';
+          @Free = %Trimr(@Free) + ' conn.prepareStatement(checkSql);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // read through occurance data structure
+b001      For @O = 1 to @Ocur;
+             %occur(@Fields) = @O;
+
+             @Free = @space2 + 'if (' + %Trimr(@Fieldname) + ' != '
+                   + %Trimr(@SavFldname) + ')';
+             WriteJavaSourceLine(@Free);
+
+b002         Select;
+x002            When @Type = 'String';
+                   // write select
+                   @Free = @space3 + 'checkStmt.setString(';
+x002            When @Type = 'double';
+                   // write select
+                   @Free = @space3 + 'checkStmt.setDouble(';
+x002            When @Type = 'int';
+                   // write select
+                   @Free = @space3 + 'checkStmt.setInt(';
+e002         EndSl;
+
+             @Free = %Trimr(@Free) + 'count++, '
+                   + %Trimr(@FieldName) + ');';
+             WriteJavaSourceLine(@Free);
+
+             WriteBlankLine();
+
+e001      EndFor;
+
+          SetSelectStatementKeys();
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'int record = checkStmt.executeUpdate();';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'SQLWarning warning = checkStmt.getWarnings();';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'printSQLWarnings(warning);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'if (record > 0)';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return true;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + 'else';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc DeleteRecord;
+
+          Dcl-Pi DeleteRecord;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          Dcl-s @EndLine Like(@Free) Inz(*Blanks);
+          Dcl-s @Check Char(5) Inz(*Blanks);
+          Dcl-s @spacebig2 Char(24) Inz(*Blanks);
+
+          // write delete
+          @Free = @space + 'public boolean delete() throws SQLException {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'setReadeOK(false);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write check for record found
+          @Free = @space2 + 'if (!getRecordFound()) {';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'System.out.println(' + @Msg3 + ');';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'String checkSql = "delete from '
+                          + %Trimr(whfile) + ' ";';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetWhereFields();
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'checkStmt =';
+          @Free = %Trimr(@Free) + ' conn.prepareStatement(checkSql);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'int count = 1;';
+          WriteJavaSourceLine(@Free);
+
+          SetSelectStatementKeys();
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'int record = checkStmt.executeUpdate();';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'SQLWarning warning = checkStmt.getWarnings();';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'printSQLWarnings(warning);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'if (record > 0)';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return true;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + 'else';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc ReadFirst;
+
+          Dcl-Pi ReadFirst;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          Dcl-s @spacebig Char(24) Inz(*Blanks);
+
+          // write delete
+          @Free = @space + 'public boolean readFirst() throws SQLException {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetOffAllInd(2);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'String checkSql = "select';
+
+          // Execute set select statement routine
+          SetSelectFields(@Free);
+
+          // write select
+          @Free = @spacebig + '" from ' + %Trimr(whfile) + '";';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'Statement Stmt =';
+          @Free = %Trimr(@Free) + ' conn.createStatement();';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'results =';
+          @Free = %Trimr(@Free) + ' Stmt.executeQuery(checkSql);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'SQLWarning warning = results.getWarnings();';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'printSQLWarnings(warning);';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'warning = Stmt.getWarnings();';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'printSQLWarnings(warning);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write read results
+          @Free = @space2 + 'if (results.first()) {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space3 + 'updateAllFromResults();';
+          WriteJavaSourceLine(@Free);
+
+b001      If @KeyFieldsInd;
+             // write select
+             @Free = @space3 + 'setKeyFields();';
+             WriteJavaSourceLine(@Free);
+e001      EndIf;
+
+          @Free = @space3 + 'setRecordFound(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'setUpdateOK(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'return true;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 +  '} else {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetOffAllInd(3);
+
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space2 +  '}';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc ReadNext;
+
+          Dcl-Pi ReadNext;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // write delete
+          @Free = @space + 'public boolean readNext() throws SQLException {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'setReadeOK(false);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write check for record found
+          @Free = @space2 + 'if (!getRecordFound()) {';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'System.out.println(' + @Msg3 + ');';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write check for record found
+          @Free = @space2 + 'if (results == null)';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write read results
+          @Free = @space2 + 'if (results.next()) {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space3 + 'updateAllFromResults();';
+          WriteJavaSourceLine(@Free);
+
+b001      If @KeyFieldsInd;
+             // write select
+             @Free = @space3 + 'setKeyFields();';
+             WriteJavaSourceLine(@Free);
+e001      EndIf;
+
+          @Free = @space3 + 'setRecordFound(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'setUpdateOK(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'return true;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 +  '} else {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetOffAllInd(3);
+
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space2 +  '}';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc ReadLast;
+
+          Dcl-Pi ReadLast;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          Dcl-s @spacebig Char(24) Inz(*Blanks);
+
+          // write delete
+          @Free = @space + 'public boolean readLast() throws SQLException {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetOffAllInd(2);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'String checkSql = "select';
+
+          // Execute set select statement routine
+          SetSelectFields(@Free);
+
+          // write select
+          @Free = @spacebig + '" from ' + %Trimr(whfile) + '";';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'Statement Stmt =';
+          @Free = %Trimr(@Free) + ' conn.createStatement();';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'results =';
+          @Free = %Trimr(@Free) + ' Stmt.executeQuery(checkSql);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'SQLWarning warning = results.getWarnings();';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'printSQLWarnings(warning);';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'warning = Stmt.getWarnings();';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'printSQLWarnings(warning);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write read results
+          @Free = @space2 + 'if (results.last()) {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space3 + 'updateAllFromResults();';
+          WriteJavaSourceLine(@Free);
+
+b001      If @KeyFieldsInd;
+             // write select
+             @Free = @space3 + 'setKeyFields();';
+             WriteJavaSourceLine(@Free);
+e001      EndIf;
+
+          @Free = @space3 + 'setRecordFound(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'setUpdateOK(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'return true;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 +  '} else {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetOffAllInd(3);
+
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 +  '}';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc ReadPrevious;
+
+          Dcl-Pi ReadPrevious;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // write delete
+          @Free = @space + 'public boolean readPrevious()';
+          @Free = %Trimr(@Free) + ' throws SQLException {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'setReadeOK(false);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write check for record found
+          @Free = @space2 + 'if (!getRecordFound()) {';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'System.out.println(' + @Msg3 + ');';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write check for record found
+          @Free = @space2 + 'if (results == null)';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write read results
+          @Free = @space2 + 'if (results.previous()) {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space3 + 'updateAllFromResults();';
+          WriteJavaSourceLine(@Free);
+
+b001      If @KeyFieldsInd;
+             // write select
+             @Free = @space3 + 'setKeyFields();';
+             WriteJavaSourceLine(@Free);
+e001      EndIf;
+
+          @Free = @space3 + 'setRecordFound(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'setUpdateOK(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'return true;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 +  '} else {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetOffAllInd(3);
+
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space2 +  '}';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc ReadEqualFirst;
+
+          Dcl-Pi ReadEqualFirst;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          Dcl-s @spacebig Char(24) Inz(*Blanks);
+
+          // write delete
+          @Free = @space + 'public boolean readEqualFirst()';
+          @Free = %Trimr(@Free) + ' throws SQLException {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetOffAllInd(2);
+
+          WriteBlankLine();
+
+          SetCheckKeyFields();
+
+          // write select
+          @Free = @space2 + 'String checkSql = "select';
+
+          // Execute set select statement routine
+          SetSelectFields(@Free);
+
+          // write select
+          @Free = @spacebig + '" from ' + %Trimr(whfile) + ' ";';
+          WriteJavaSourceLine(@Free);
+
+          SetWhereFields();
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'checkStmt =';
+          @Free = %Trimr(@Free) + ' conn.prepareStatement(checkSql);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetSelectKeyFields();
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'results = checkStmt.executeQuery();';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'SQLWarning warning = results.getWarnings();';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'printSQLWarnings(warning);';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'warning = checkStmt.getWarnings();';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'printSQLWarnings(warning);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write read results
+          @Free = @space2 + 'if (results.first()) {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space3 + 'updateAllFromResults();';
+          WriteJavaSourceLine(@Free);
+
+b001      If @KeyFieldsInd;
+             // write select
+             @Free = @space3 + 'setKeyFields();';
+             WriteJavaSourceLine(@Free);
+e001      EndIf;
+
+          @Free = @space3 + 'setRecordFound(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'setUpdateOK(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'setReadeOK(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'return true;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 +  '} else {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetOffAllInd(3);
+
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 +  '}';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc ReadEqualNext;
+
+          Dcl-Pi ReadEqualNext;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // write delete
+          @Free = @space + 'public boolean readEqualNext()';
+          @Free = %Trimr(@Free) + ' throws SQLException {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write check for record found
+          @Free = @space2 + 'if (!getReadeOK()) {';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'System.out.println(' + @Msg3 + ');';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write check for record found
+          @Free = @space2 + 'if (results == null)';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write read results
+          @Free = @space2 + 'if (results.next()) {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space3 + 'updateAllFromResults();';
+          WriteJavaSourceLine(@Free);
+
+b001      If @KeyFieldsInd;
+             // write select
+             @Free = @space3 + 'setKeyFields();';
+             WriteJavaSourceLine(@Free);
+e001      EndIf;
+
+          @Free = @space3 + 'setRecordFound(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'setUpdateOK(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'setReadeOK(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'return true;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 +  '} else {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetOffAllInd(3);
+
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 +  '}';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc ReadEqualLast;
+
+          Dcl-Pi ReadEqualLast;
+          End-Pi;
+
+          Dcl-s @spacebig Char(24) Inz(*Blanks);
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // write delete
+          @Free = @space + 'public boolean readEqualLast()';
+          @Free = %Trimr(@Free) + ' throws SQLException {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetOffAllInd(2);
+
+          WriteBlankLine();
+
+          SetCheckKeyFields();
+
+          // write select
+          @Free = @space2 + 'String checkSql = "select';
+
+          // Execute set select statement routine
+          SetSelectFields(@Free);
+
+          // write select
+          @Free = @spacebig + '" from ' + %Trimr(whfile) + ' ";';
+          WriteJavaSourceLine(@Free);
+
+          SetWhereFields();
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'checkStmt =';
+          @Free = %Trimr(@Free) + ' conn.prepareStatement(checkSql);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetSelectKeyFields();
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'results = checkStmt.executeQuery();';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space2 + 'SQLWarning warning = results.getWarnings();';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'printSQLWarnings(warning);';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'warning = checkStmt.getWarnings();';
+          WriteJavaSourceLine(@Free);
+
+          // write select
+          @Free = @space2 + 'printSQLWarnings(warning);';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write read results
+          @Free = @space2 + 'if (results.last()) {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space3 + 'updateAllFromResults();';
+          WriteJavaSourceLine(@Free);
+
+b001      If @KeyFieldsInd;
+             // write select
+             @Free = @space3 + 'setKeyFields();';
+             WriteJavaSourceLine(@Free);
+e001      EndIf;
+
+          @Free = @space3 + 'setRecordFound(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'setUpdateOK(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'setReadeOK(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'return true;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 +  '} else {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetOffAllInd(3);
+
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 +  '}';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc ReadEqualPrevious;
+
+          Dcl-Pi ReadEqualPrevious;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // write delete
+          @Free = @space + 'public boolean readEqualPrevious()';
+          @Free = %Trim(@Free) + ' throws SQLException {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write check for record found
+          @Free = @space2 + 'if (!getReadeOK()) {';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'System.out.println(' + @Msg3 + ');';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write check for record found
+          @Free = @space2 + 'if (results == null)';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write read results
+          @Free = @space2 + 'if (results.previous()) {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write select
+          @Free = @space3 + 'updateAllFromResults();';
+          WriteJavaSourceLine(@Free);
+
+b001      If @KeyFieldsInd;
+             // write select
+             @Free = @space3 + 'setKeyFields();';
+             WriteJavaSourceLine(@Free);
+e001      EndIf;
+
+          @Free = @space3 + 'setRecordFound(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'setUpdateOK(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'setReadeOK(true);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'return true;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 +  '} else {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          SetOffAllInd(3);
+
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 +  '}';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc UpdateAllFromResults;
+
+          Dcl-Pi UpdateAllFromResults;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // write delete
+          @Free = @space + 'public void updateAllFromResults()';
+          @Free = %Trimr(@Free) + ' throws SQLException {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write check for record found
+          @Free = @space2 + 'if (results == null)';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // read through occurance data structure
+b001      For @o = 1 to @Ocur;
+             %occur(@Fields) = @o;
+             @Free = @space2 + %Trimr(@SetterName) + '(';
+b002         Select;
+x002            When @Type = 'String';
+                   @Free = %Trimr(@Free) + 'results.getString("'
+                                         + %Trimr(@SysFldName) + '"));';
+x002            When @Type = 'int';
+                   @Free = %Trimr(@Free) + 'results.getInt("'
+                                         + %Trimr(@SysFldName) + '"));';
+x002            When @Type = 'double';
+                   @Free = %Trimr(@Free) + 'results.getDouble("'
+                                         + %Trimr(@SysFldName) + '"));';
+e002         EndSl;
+             WriteJavaSourceLine(@Free);
+             @Free = @space2  + %Trimr(@SetterName) + 'Sav();';
+             WriteJavaSourceLine(@Free);
+e001      EndFor;
+
+          WriteBlankLine();
+
+b001      If @KeyFieldsInd;
+             // write select
+             @Free = @space2 + ' setKeyFields();';
+             WriteJavaSourceLine(@Free);
+e001      EndIf;
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc ToString;
+
+          Dcl-Pi ToString;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          Dcl-s @Cnt Packed(3:0) Inz(*Zeros);
+          Dcl-s @spacebig Char(23) Inz(*Blanks);
+          Dcl-s @First Ind Inz(*Off);
+
+          // write delete
+          @Free = @space + 'public String toString() {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write to string
+          @Free = @space2 + 'return "' + %trim(whfile) + ' [';
+
+          // read through occurance data structure
+b001      For @O = 1 to @Ocur;
+             %occur(@Fields) = @O;
+             @Cnt += 1;
+b002         If @Cnt = 1;
+b003            If not @First;
+                   @Free = %Trimr(@Free) + %Trimr(@FieldName) + '=" + '
+                         + %Trimr(@FieldName) + ' + ",';
+                   @First = *On;
+x003            Else;
+b004               If @O < @Ocur;
+                      @Free = @spacebig + '"' + %Trimr(@FieldName) + '=" + '
+                            + %Trimr(@FieldName) + ' + ",';
+x004               Else;
+                      @Free = @spacebig + '"' + %Trimr(@FieldName) + '=" + '
+                            + %Trimr(@FieldName);
+e004               EndIf;
+e003            EndIf;
+x002         Else;
+b003            If @O < @Ocur;
+                   @Free = %Trimr(@Free) + ' ' + %Trimr(@FieldName) + '=" + '
+                         + %Trimr(@FieldName) + ' + ",';
+x003            Else;
+                   @Free = %Trimr(@Free) + ' ' + %Trimr(@FieldName) + '=" + '
+                         + %Trimr(@FieldName);
+e003            EndIf;
+e002         EndIf;
+b002         If @Cnt = 2 and @O <> @Ocur;
+               @Free = %Trimr(@Free) + '" +';
+                WriteJavaSourceLine(@Free);
+                Clear @Free;
+                Clear @Cnt;
+e002         EndIf;
+e001      EndFor;
+
+          @Free = %Trimr(@Free) + ' + "]";';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc ToStringKeys;
+
+          Dcl-Pi ToStringKeys;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          Dcl-s @Cnt Packed(3:0) Inz(*Zeros);
+          Dcl-s @spacebig Char(23) Inz(*Blanks);
+          Dcl-s @First Ind Inz(*Off);
+
+          // write delete
+          @Free = @space + 'public String toStringKey() {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          // write to string
+          @Free = @space2 + 'return "' + %trim(whfile) + ' [';
+
+          // read through occurance data structure
+b001      For @K = 1 to @KOcur;
+             %occur(@KeyFields) = @K;
+             @Cnt += 1;
+b002         If @Cnt = 1;
+b003            If not @First;
+                   @Free = %Trimr(@Free) + %Trimr(@KeyName) + '=" + '
+                         + %Trimr(@KeyName) + ' + ",';
+                   @First = *On;
+x003            Else;
+b004               If @K < @KOcur;
+                      @Free = @spacebig + '"' + %Trimr(@KeyName) + '=" + '
+                            + %Trimr(@KeyName) + ' + ",';
+x004               Else;
+                      @Free = @spacebig + %Trimr(@KeyName) + '=" + '
+                            + %Trimr(@KeyName);
+e004               EndIf;
+e003            EndIf;
+x002         Else;
+b003            If @K < @KOcur;
+                   @Free = %Trimr(@Free) + ' ' + %Trimr(@KeyName) + '=" + '
+                         + %Trimr(@KeyName) + ' + ",';
+x003            Else;
+                   @Free = %Trimr(@Free) + ' ' + %Trimr(@KeyName) + '=" + '
+                         + %Trimr(@KeyName);
+e003            EndIf;
+e002         EndIf;
+b002         If @Cnt = 2 and @K <> @KOcur;
+               @Free = %Trimr(@Free) + '" +';
+                WriteJavaSourceLine(@Free);
+                Clear @Free;
+                Clear @Cnt;
+e002         EndIf;
+e001      EndFor;
+
+          @Free = %Trimr(@Free) + ' + "]";';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc CheckFields;
+
+          Dcl-Pi CheckFields;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          @Free = @space + 'public boolean checkSizeDouble(double field,';
+          @Free = %Trimr(@Free) + ' int length, int decimal) {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'int leftInt = 0;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + 'int leftIntSize;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + 'String doubleString, leftString;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + 'char checkString = ''.'';';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          //  @Free = @space2 + 'doubleString = "" + field;';
+          @Free = @space2 + 'doubleString = new Double(field).toString();';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + 'int stringLength = doubleString.length();';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + 'for (int i = 0; i < stringLength; i++) {';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'char newString = doubleString.charAt(i);';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'if (newString == checkString) {';
+          WriteJavaSourceLine(@Free);
+          @Free = @space4 + 'leftInt = i;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space4 + 'break;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + '}';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'leftString = doubleString.substring(0, leftInt);';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + 'leftIntSize = leftString.length();';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'if (leftIntSize > leftInt)';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'return true;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space + 'public boolean checkSizeInt(int field,';
+          @Free = %Trimr(@Free) + ' int length) {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'double testInt;';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space2 + 'String stringInt = "";';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'for (int i = 0; i < length; i++) {';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'stringInt = stringInt.concat("9");';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space2 + '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'testInt = Double.parseDouble(stringInt);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space2 + 'if (field > testInt) {';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'System.out.println("Number' + @Msg4 + ');';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space2 + '} else';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'return true;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space + 'public boolean checkSizeString(String field,';
+          @Free = %Trimr(@Free) + ' int length) {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'String overflow;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'if (field.length() < length) return true;';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'overflow = field.substring(length);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space2 + 'String trim = overflow.trim();';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space2 + 'if (!trim.isEmpty()) {';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'System.out.println("String' + @Msg4 + ');';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space2 + '} else';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'return true;';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space + 'public void printSQLWarnings(SQLWarning warning) {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + 'while (warning != null) {';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space3 + 'System.out.println(warning);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'String message = warning.getMessage();';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'String sqlState = warning.getSQLState();';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'int errorCode = warning.getErrorCode();';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'System.out.println(message + sqlState';
+          @Free = %Trimr(@Free) + ' + errorCode);';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space3 + 'warning = warning.getNextWarning();';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+          @Free = @space2 + '};';
+          WriteJavaSourceLine(@Free);
+
+          @Free = @space +  '}';
+          WriteJavaSourceLine(@Free);
+
+š         End-Proc;
+
+š         Dcl-Proc SetSelectFields;
+
+          Dcl-Pi SetSelectFields;
+             @Free VarChar(32000);
+          End-Pi;
+
+          Dcl-s @Cnt Packed(3:0) Inz(*Zeros);
+          Dcl-s @spacebig1 Char(30) Inz(*Blanks);
+          Dcl-s @First Ind Inz(*Off);
+
+          // read through occurance data structure
+b001      For @o = 1 to @Ocur;
+             %occur(@Fields) = @o;
+             @Cnt += 1;
+b002         If @Cnt = 1;
+b003            If not @First;
+                   @Free = %Trimr(@Free) + ' ' + %Trimr(@SysFldName) + ', ';
+                   @First = *On;
+x003            Else;
+b004               If @o < @Ocur;
+                      @Free = @spacebig1 + '" ' + %Trimr(@SysFldName) + ', ';
+x004               Else;
+                      @Free = @spacebig1 + %Trimr(@SysFldName);
+e004               EndIf;
+e003            EndIf;
+x002         Else;
+b003            If @o < @Ocur;
+                   @Free = %Trimr(@Free) + ' ' + %Trimr(@SysFldName) + ',';
+x003            Else;
+                   @Free = %Trimr(@Free) + ' ' + %Trimr(@SysFldName);
+e003            EndIf;
+e002         EndIf;
+b002         If @Cnt = 8 and @o <> @Ocur;
+                @Free = %Trimr(@Free) + '" +';
+                WriteJavaSourceLine(@Free);
+                Clear @Free;
+                Clear @Cnt;
+e002         EndIf;
+e001      EndFor;
+          // write select
+          @Free = %Trimr(@Free) + '" +';
+          WriteJavaSourceLine(@Free);
+
+š         End-Proc;
+
+š         Dcl-Proc SetWhereFields;
+
+          Dcl-Pi SetWhereFields;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          Dcl-s @Cnt Packed(3:0) Inz(*Zeros);
+          Dcl-s @First Ind Inz(*Off);
+          Dcl-s @EndLine Like(@Free) Inz(*Blanks);
+          Dcl-s @Check Char(5) Inz(*Blanks);
+
+          // read through occurance data structure
+b001      For @K = 1 to @KOcur;
+             %occur(@KeyFields) = @K;
+b002         If @KeyType = 'String';
+                @Check = '""';
+x002         Else;
+                @Check = '0';
+e002         EndIf;
+             @Cnt += 1;
+b002         If @Cnt = 1 and @Cnt <> @K;
+b003            If not @First;
+                   @Free = @space2 + 'if (' + %Trimr(@KeyFldName)
+                                            + ' != ' + %Trimr(@Check) + ') {';
+                   WriteJavaSourceLine(@Free);
+                   @Free = @space3 + 'checkSql = checkSql + " and '
+                                   + %Trimr(@KeyName) + '=?';
+                   WriteJavaSourceLine(@Free);
+                   @First = *On;
+                   @EndLine = %Trimr(@EndLine) + '};';
+x003            Else;
+b004               If @K < @KOcur;
+                      @Free = @space2 + 'if (' + %Trimr(@KeyFldName)
+                                            + ' != ' + %Trimr(@Check) + ') {';
+                      WriteJavaSourceLine(@Free);
+                      @Free = @space3 + 'checkSql = checkSql + " and '
+                                      + %Trimr(@KeyName) + '=?';
+                      WriteJavaSourceLine(@Free);
+                      @EndLine = %Trimr(@EndLine) + '};';
+x004               Else;
+                      @Free = @space2 + 'if (' + %Trimr(@KeyFldName)
+                                            + ' != ' + %Trimr(@Check) + ') {';
+                      WriteJavaSourceLine(@Free);
+                      @Free = @space3 + 'checkSql = checkSql + " and '
+                                      + %Trimr(@KeyName) + '=?';
+                      WriteJavaSourceLine(@Free);
+                      @EndLine = %Trimr(@EndLine) + '};';
+e004               EndIf;
+e003            EndIf;
+x002         Else;
+b003            If @K < @KOcur;
+b004               If not @First;
+                      @Free = @space2 + 'if (' + %Trimr(@KeyFldName)
+                                            + ' != ' + %Trimr(@Check) + ') {';
+                      WriteJavaSourceLine(@Free);
+                      @Free = @space3 + 'checkSql = checkSql + " where '
+                                      + %Trimr(@KeyName) + '=?";';
+                      WriteJavaSourceLine(@Free);
+                      @First = *On;
+                      @EndLine = %Trimr(@EndLine) + '};';
+x004               Else;
+                      @Free = @space2 + 'if (' + %Trimr(@KeyFldName)
+                                            + ' != ' + %Trimr(@Check) + ') {';
+                      WriteJavaSourceLine(@Free);
+                      @Free = @space3 + 'checkSql = checkSql + " and '
+                                      + %Trimr(@KeyName) + '=?";';
+                      WriteJavaSourceLine(@Free);
+                      @EndLine = %Trimr(@EndLine) + '};';
+e004               EndIf;
+x003            Else;
+b004               If @K = 1;
+                      @Free = @space2 + 'if (' + %Trimr(@KeyFldName)
+                                            + ' != ' + %Trimr(@Check) + ') {';
+                      WriteJavaSourceLine(@Free);
+                      @Free = @space3 + 'checkSql = checkSql + "Where '
+                                      + %Trimr(@KeyName) + '=?";';
+                      @EndLine = %Trimr(@EndLine) + '};';
+x004               Else;
+                      @Free = @space2 + 'if (' + %Trimr(@KeyFldName)
+                                            + ' != ' + %Trimr(@Check) + ') {';
+                      WriteJavaSourceLine(@Free);
+                      @Free = @space3 + 'checkSql = checkSql + " and '
+                                      + %Trimr(@KeyName) + '=?";';
+                      @EndLine = %Trimr(@EndLine) + '};';
+e004               EndIf;
+e003            EndIf;
+e002         EndIf;
+e001      EndFor;
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + %Trimr(@EndLine);
+          WriteJavaSourceLine(@Free);
+
+š         End-Proc;
+
+š         Dcl-Proc SetSelectKeyFields;
+
+          Dcl-Pi SetSelectKeyFields;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          Dcl-s @EndLine Like(@Free) Inz(*Blanks);
+          Dcl-s @Check Char(5) Inz(*Blanks);
+
+          // read through occurance data structure
+b001      For @K = 1 to @KOcur;
+             %occur(@KeyFields) = @K;
+b002         If @KeyType = 'String';
+                @Check = '""';
+x002         Else;
+                @Check = '0';
+e002         EndIf;
+
+             @Free = @space2 + 'if (' + %Trimr(@KeyFldName)
+                                      + ' != ' + %Trimr(@Check) + ') {';
+             WriteJavaSourceLine(@Free);
+
+b002         Select;
+x002         When @KeyType = 'String';
+                // write select
+                @Free = @space3 + 'checkStmt.setString(';
+x002         When @KeyType = 'double';
+                // write select
+                @Free = @space3 + 'checkStmt.setDouble(';
+x002         When @KeyType = 'int';
+                // write select
+                @Free = @space3 + 'checkStmt.setInt(';
+e002         EndSl;
+             @Free = %Trimr(@Free) + %Char(@K) + ', '
+                   + %Trimr(@KeyFldName) + ');';
+             WriteJavaSourceLine(@Free);
+             @EndLine = %Trimr(@EndLine) + '};';
+
+e001      EndFor;
+          @Free = @space2 + %Trimr(@EndLine);
+          WriteJavaSourceLine(@Free);
+
+š         End-Proc;
+
+š         Dcl-Proc SetSelectStatementKeys;
+
+          Dcl-Pi SetSelectStatementKeys;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          Dcl-s @EndLine Like(@Free) Inz(*Blanks);
+          Dcl-s @Check Char(5) Inz(*Blanks);
+
+          // read through occurance data structure
+b001      For @K = 1 to @KOcur;
+             %occur(@KeyFields) = @K;
+b002         If @KeyType = 'String';
+                @Check = '""';
+x002         Else;
+                @Check = '0';
+e002         EndIf;
+
+             @Free = @space2 + 'if (' + %Trimr(@KeyFldName)
+                                      + ' != ' + %Trimr(@Check) + ') {';
+             WriteJavaSourceLine(@Free);
+
+b002         Select;
+x002         When @KeyType = 'String';
+                // write select
+                @Free = @space3 + 'checkStmt.setString(';
+x002         When @KeyType = 'double';
+                // write select
+                @Free = @space3 + 'checkStmt.setDouble(';
+x002         When @KeyType = 'int';
+                // write select
+                @Free = @space3 + 'checkStmt.setInt(';
+e002         EndSl;
+             @Free = %Trimr(@Free) + 'count++, '
+                   + %Trimr(@KeyFldName) + ');';
+             WriteJavaSourceLine(@Free);
+             @EndLine = %Trimr(@EndLine) + '};';
+
+e001      EndFor;
+          @Free = @space2 + %Trimr(@EndLine);
+          WriteJavaSourceLine(@Free);
+
+š         End-Proc;
+
+š         Dcl-Proc SetCheckKeyFields;
+
+          Dcl-Pi SetCheckKeyFields;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // check for first key field filled for select
+          %occur(@KeyFields) = 1;
+          @Free = @space2 + 'if (' + %Trimr(@KeyFldName)  + ' == "") {';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'System.out.println("' + @Msg5 + '");';
+          WriteJavaSourceLine(@Free);
+          @Free = @space3 + 'return false;';
+          WriteJavaSourceLine(@Free);
+          @Free = @space2 + '};';
+          WriteJavaSourceLine(@Free);
+
+          WriteBlankLine();
+
+š         End-Proc;
+
+š         Dcl-Proc SetOffAllInd;
+
+          Dcl-Pi SetOffAllInd;
+             @Level Packed(1:0) Const;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          Select;
+
+             When @Level = 1;
+
+                @Free = @space + 'setReadeOK(false);';
+                WriteJavaSourceLine(@Free);
+
+                @Free = @space + 'setUpdateOK(false);';
+                WriteJavaSourceLine(@Free);
+
+                @Free = @space + 'setRecordFound(false);';
+                WriteJavaSourceLine(@Free);
+
+             When @Level = 2;
+
+                @Free = @space2 + 'setReadeOK(false);';
+                WriteJavaSourceLine(@Free);
+
+                @Free = @space2 + 'setUpdateOK(false);';
+                WriteJavaSourceLine(@Free);
+
+                @Free = @space2 + 'setRecordFound(false);';
+                WriteJavaSourceLine(@Free);
+
+             When @Level = 3;
+
+                @Free = @space3 + 'setReadeOK(false);';
+                WriteJavaSourceLine(@Free);
+
+                @Free = @space3 + 'setUpdateOK(false);';
+                WriteJavaSourceLine(@Free);
+
+                @Free = @space3 + 'setRecordFound(false);';
+                WriteJavaSourceLine(@Free);
+
+             When @Level = 4;
+
+                @Free = @space4 + 'setReadeOK(false);';
+                WriteJavaSourceLine(@Free);
+
+                @Free = @space4 + 'setUpdateOK(false);';
+                WriteJavaSourceLine(@Free);
+
+                @Free = @space4 + 'setRecordFound(false);';
+                WriteJavaSourceLine(@Free);
+
+e001      EndSl;
+
+š         End-Proc;
+
+š         Dcl-Proc CloseClass;
+
+          Dcl-Pi CloseClass;
+          End-Pi;
+
+          Dcl-s @Free VarChar(32000) Inz(*Blanks);
+
+          // Close bracket
+          @Free = '}';
+          WriteJavaSourceLine(@Free);
+
+š         End-Proc;
+
+š         Dcl-Proc WriteJavaSourceLine;
+
+          Dcl-Pi WriteJavaSourceLine;
+             @SourceLine VarChar(32000) Const;
+          End-Pi;
+
+          Dcl-Ds @JavaDs Len(32000);
+             @Source1 Char(200);
+             @Source2 Char(200);
+             @Spc Char(100) Dim(100) Pos(1);
+          End-Ds;
+
+          Dcl-Ds @JavaSourceDs Len(212);
+             @Free Char(200) Pos(13);
+          End-Ds;
+
+          Dcl-s @Length Packed(5:0) Inz(*Zeros);
+
+          @JavaDs = @SourceLine;
+          @Length = %Len(%Trimr(@SourceLine));
+
+b001      Select;
+
+x001         When @Length <= 200;
+
+                @Free = @Source1;
+                Write qjavasrc @JavaSourceDs;
+
+x001         When @Length <= 400;
+
+                @Free = @Source1;
+                Write qjavasrc @JavaSourceDs;
+
+                @Free = @Source2;
+                Write qjavasrc @JavaSourceDs;
+
+e001      EndSl;
+
+š         End-Proc;
+
